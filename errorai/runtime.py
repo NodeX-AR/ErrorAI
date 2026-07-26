@@ -218,7 +218,11 @@ class RuntimeManager:
         if not plan or not filename or "<" in filename:
             self.reporter.log("exception.analyzed", {"analysis": analysis, "fixed": False})
             print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
-            print("[errorai] No automatic fix rule matched this error.")
+            provider_reason = getattr(self.provider, "last_error", None)
+            if provider_reason:
+                print(f"[errorai] No fix: provider request failed ({provider_reason})")
+            else:
+                print("[errorai] No automatic fix rule matched this error.")
             return False
 
         print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
