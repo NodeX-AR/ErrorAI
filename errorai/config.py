@@ -40,11 +40,11 @@ class RuntimeConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str = "llama_cpp"
-    name: str = "qwen2.5-coder-1.5b-instruct-q4_k_m"
+    provider: str = "onnx"
+    name: str = "onnx-default-python-expert"
     model_url: str = (
-        "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/"
-        "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+        "https://huggingface.co/onnx-community/Qwen2.5-Coder-1.5B-Instruct-ONNX/resolve/main/"
+        "model.onnx"
     )
     context_window: int = 4096
     temperature: float = 0.1
@@ -120,8 +120,8 @@ dry_run = true
 ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules", "*.lock", ".errorai"]
 
 [model]
-provider = "llama_cpp"
-name = "qwen2.5-coder-1.5b-instruct-q4_k_m"
+provider = "onnx"
+name = "onnx-default-python-expert"
 context_window = 4096
 temperature = 0.1
 auto_bootstrap = true
