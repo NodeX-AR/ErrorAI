@@ -1,0 +1,23 @@
+{
+  "name": "lightweight-debugger",
+  "description": "Lightweight local fix rules for common Python debugging errors.",
+  "rules": [
+    {
+      "type": "append_if_missing",
+      "contains": ["expected ':'", "invalid syntax"],
+      "value": ":"
+    },
+    {
+      "type": "replace",
+      "contains": ["nameerror", "is not defined"],
+      "old": "pritn(",
+      "new": "print("
+    },
+    {
+      "type": "replace",
+      "contains": ["nameerror", "is not defined"],
+      "old": "prin(",
+      "new": "print("
+    }
+  ]
+}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ErrorAI"
-version = "0.1.0"
+version = "0.2.0"
 description = "An interactive, AI-powered terminal debugging and auto-fixing library for Python."
 readme = "README.md"
 authors = [
@@ -19,6 +19,9 @@ classifiers = [
 ]
 requires-python = ">=3.7"
 dependencies = []
+
+[tool.setuptools.package-data]
+errorai = ["models/*.json"]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/ErrorAI"
