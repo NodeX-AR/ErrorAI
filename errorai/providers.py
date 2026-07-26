@@ -173,6 +173,7 @@ class HttpApiProvider(ModelProvider):
     """
 
     config: ModelConfig
+    last_error: str | None = None
 
     def suggest_patch(self, snippet: str, error_message: str) -> str | None:
         prompt = (
@@ -206,7 +207,12 @@ class HttpApiProvider(ModelProvider):
             with urllib.request.urlopen(request, timeout=self.config.http_api_timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
             text = body["choices"][0]["message"]["content"]
-        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError, OSError):
+        except Exception as exc:
+            # Any failure here (network down, SSL/proxy quirks, malformed
+            # response, endpoint changed shape, etc.) should degrade to "no
+            # fix found", never bubble up and look like a crash. Stash the
+            # real reason on the instance so the caller can log it if useful.
+            self.last_error = f"{type(exc).__name__}: {exc}"
             return None
 
         return _clean_line_response(text, snippet)
