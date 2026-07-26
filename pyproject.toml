@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ErrorAI"
-version = "0.1.0"
-description = "An interactive, AI-powered terminal debugging and auto-fixing library for Python."
+version = "2.0.0"
+description = "Python-only autonomous runtime that watches/analyzes errors with safe local auto-fix fallbacks."
 readme = "README.md"
 authors = [
     { name = "Aswanth R" }
@@ -17,8 +17,15 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Debugging",
 ]
-requires-python = ">=3.7"
-dependencies = []
+requires-python = ">=3.9"
+dependencies = ["platformdirs>=3.0"]
+
+[project.optional-dependencies]
+local-model = ["llama-cpp-python>=0.2.90"]
+watch = ["watchdog>=4.0.0"]
+
+[project.scripts]
+errorai = "errorai.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/ErrorAI"
+Homepage = "https://github.com/NodeX-AR/ErrorAI"
