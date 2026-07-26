@@ -191,10 +191,38 @@ class RuntimeManager:
         filename = frame.filename
         line = linecache.getline(filename, frame.lineno).strip() if filename else ""
         analysis = self.analyzer.analyze_exception(exc_type, exc_value, exc_tb)
-        plan = self.planner.plan_line_fix(line or frame.line or "", analysis["message"])
+        try:
+            plan = self.planner.plan_line_fix(line or frame.line or "", analysis["message"])
+        except Exception as provider_exc:
+            # Never let a broken/missing model provider raise out of an
+            # exception hook -- that can crash the interpreter (or IDLE's
+            # subprocess) while it's in the middle of handling an exception.
+            self.reporter.log(
+                "provider.error",
+                {"analysis": analysis, "error": f"{type(provider_exc).__name__}: {provider_exc}"},
+            )
+            print(f"[errorai] Model provider failed ({type(provider_exc).__name__}: {provider_exc})")
+            return False
+
         if not plan or not filename or "<" in filename:
             self.reporter.log("exception.analyzed", {"analysis": analysis, "fixed": False})
+            print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
+            print("[errorai] No automatic fix rule matched this error.")
             return False
+
+        print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
+        print(f"[errorai] Suggested fix -> {plan}")
+
+        if self.capabilities and self.capabilities.can_prompt_user:
+            try:
+                answer = input("[errorai] Should I fix it [Y/N]: ").strip().lower()
+            except (EOFError, OSError):
+                answer = "n"
+            if answer not in {"y", "yes"}:
+                self.reporter.log("exception.declined", {"analysis": analysis})
+                print("[errorai] Skipped.")
+                return False
+
         result = self.applier.apply_line_change(Path(filename), frame.lineno, plan)
         self.reporter.log(
             "exception.handled",
@@ -209,6 +237,8 @@ class RuntimeManager:
             print("[errorai] suggested fix (dry-run, not applied):")
             print(result.preview)
             print("[errorai] set dry_run = false in .errorai.toml to auto-apply")
+        elif result.changed:
+            print(f"[errorai] Applied fix to {filename}:{frame.lineno}")
         return result.changed
 
     def status_report(self) -> dict[str, Any]:
