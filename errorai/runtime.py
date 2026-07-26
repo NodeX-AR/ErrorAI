@@ -13,7 +13,17 @@ from .bootstrap import BootstrapStatus, ensure_model, model_status
 from .config import ErrorAIConfig, autostart_enabled, load_config
 from .environment import Capabilities, detect_capabilities
 from .pipeline import Analyzer, Applier, Planner, Reporter, Watcher
-from .providers import LlamaCppProvider, ModelProvider, RulesOnlyProvider
+from .providers import ModelProvider, RulesOnlyProvider
+
+try:
+    from .providers import LlamaCppProvider
+except ImportError:  # pragma: no cover - optional dependency
+    LlamaCppProvider = None  # type: ignore[assignment,misc]
+
+try:
+    from .providers import OnnxProvider
+except ImportError:  # pragma: no cover - optional dependency
+    OnnxProvider = None  # type: ignore[assignment,misc]
 
 
 class RuntimeManager:
@@ -35,6 +45,8 @@ class RuntimeManager:
         self.mode = "rules-only"
         self._orig_sys_hook = sys.excepthook
         self._orig_thread_hook = getattr(threading, "excepthook", None)
+        self._orig_idle_print_exception = None
+        self._idle_hook_installed = False
 
     @classmethod
     def get_instance(cls) -> "RuntimeManager":
@@ -72,6 +84,7 @@ class RuntimeManager:
                     "environment": self.capabilities.environment,
                     "mode": self.mode,
                     "model_mode": self.bootstrap_status.mode,
+                    "idle_hook_installed": self._idle_hook_installed,
                 },
             )
             self._initialized = True
@@ -80,12 +93,26 @@ class RuntimeManager:
     def _select_provider(self, status: BootstrapStatus) -> ModelProvider:
         if not status.ready or status.model_path is None or self.config is None:
             return RulesOnlyProvider()
-        if self.config.model.provider != "llama_cpp":
-            return RulesOnlyProvider()
-        try:
-            return LlamaCppProvider(self.config.model, status.model_path)
-        except Exception:
-            return RulesOnlyProvider()
+
+        provider_name = self.config.model.provider
+
+        if provider_name == "onnx":
+            if OnnxProvider is None:
+                return RulesOnlyProvider()
+            try:
+                return OnnxProvider(self.config.model, status.model_path)
+            except Exception:
+                return RulesOnlyProvider()
+
+        if provider_name == "llama_cpp":
+            if LlamaCppProvider is None:
+                return RulesOnlyProvider()
+            try:
+                return LlamaCppProvider(self.config.model, status.model_path)
+            except Exception:
+                return RulesOnlyProvider()
+
+        return RulesOnlyProvider()
 
     def _register_hooks(self) -> None:
         self._orig_sys_hook = sys.excepthook
@@ -93,6 +120,50 @@ class RuntimeManager:
         if hasattr(threading, "excepthook"):
             self._orig_thread_hook = threading.excepthook
             threading.excepthook = self._thread_excepthook
+
+        if self.capabilities and self.capabilities.environment == "idle":
+            self._install_idle_hook()
+
+    def _install_idle_hook(self) -> None:
+        """IDLE runs user code inside idlelib.run's own exec/except loop and
+        prints tracebacks itself via idlelib.run.print_exception, so the
+        exception never reaches sys.excepthook. Patch that function directly.
+        """
+        try:
+            import idlelib.run as idle_run
+        except ImportError:  # pragma: no cover - not actually running under IDLE
+            return
+
+        if self._idle_hook_installed:
+            return
+
+        self._orig_idle_print_exception = idle_run.print_exception
+
+        def patched_print_exception() -> None:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            handled = False
+            if exc_type is not None:
+                handled = self.process_exception(exc_type, exc_value, exc_tb)
+            if handled:
+                print("[errorai] exception intercepted")
+                return
+            if self._orig_idle_print_exception is not None:
+                self._orig_idle_print_exception()
+
+        idle_run.print_exception = patched_print_exception
+        self._idle_hook_installed = True
+
+    def _uninstall_idle_hook(self) -> None:
+        if not self._idle_hook_installed:
+            return
+        try:
+            import idlelib.run as idle_run
+        except ImportError:  # pragma: no cover
+            self._idle_hook_installed = False
+            return
+        if self._orig_idle_print_exception is not None:
+            idle_run.print_exception = self._orig_idle_print_exception
+        self._idle_hook_installed = False
 
     def _sys_excepthook(self, exc_type, exc_value, exc_tb):
         handled = self.process_exception(exc_type, exc_value, exc_tb)
@@ -134,6 +205,10 @@ class RuntimeManager:
                 "preview": result.preview,
             },
         )
+        if result.preview and not result.changed:
+            print("[errorai] suggested fix (dry-run, not applied):")
+            print(result.preview)
+            print("[errorai] set dry_run = false in .errorai.toml to auto-apply")
         return result.changed
 
     def status_report(self) -> dict[str, Any]:
@@ -150,6 +225,7 @@ class RuntimeManager:
             "model_detail": self.bootstrap_status.detail,
             "dry_run": cfg.runtime.dry_run,
             "project_root": str(cfg.runtime.project_root),
+            "idle_hook_installed": self._idle_hook_installed,
         }
 
     def install_model(self) -> BootstrapStatus:
@@ -172,6 +248,7 @@ class RuntimeManager:
         sys.excepthook = self._orig_sys_hook
         if hasattr(threading, "excepthook") and self._orig_thread_hook is not None:
             threading.excepthook = self._orig_thread_hook
+        self._uninstall_idle_hook()
         self._initialized = False
 
 
