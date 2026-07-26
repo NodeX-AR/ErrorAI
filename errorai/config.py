@@ -3,7 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 import os
+import sys
 from typing import Any, Dict
+
+
+def _default_project_root() -> Path:
+    """Prefer the directory of the script actually being run.
+
+    Path.cwd() is wrong in IDLE (and many IDEs): "Run Module" does not chdir
+    into the script's folder, it just sets sys.argv[0] to the script path.
+    Falling back to cwd() there means the running file is almost never
+    considered "inside" project_root, and every fix silently gets blocked by
+    Applier.can_edit().
+    """
+    try:
+        candidate = sys.argv[0]
+        if candidate and Path(candidate).is_file():
+            return Path(candidate).resolve().parent
+    except Exception:
+        pass
+    return Path.cwd()
 
 try:
     import tomllib
@@ -25,7 +44,7 @@ class RuntimeConfig:
     auto_watch: bool = True
     safe_mode: bool = True
     dry_run: bool = True
-    project_root: Path = field(default_factory=lambda: Path.cwd())
+    project_root: Path = field(default_factory=_default_project_root)
     ignore_patterns: tuple[str, ...] = (
         ".git",
         "__pycache__",
@@ -42,10 +61,10 @@ class RuntimeConfig:
 class ModelConfig:
     provider: str = "onnx"
     name: str = "onnx-qwen2.5-coder-0.5b"
-    repo_id: str = "onnx-community/Qwen2.5-Coder-0.5B-Instruct-ONNX"
+    repo_id: str = "onnx-community/Qwen2.5-Coder-0.5B-Instruct"
     model_url: str = (
-        "https://huggingface.co/onnx-community/Qwen2.5-Coder-0.5B-Instruct-ONNX/resolve/main/"
-        "model.onnx"
+        "https://huggingface.co/onnx-community/Qwen2.5-Coder-0.5B-Instruct/resolve/main/"
+        "onnx/model.onnx"
     )
     context_window: int = 4096
     temperature: float = 0.1
