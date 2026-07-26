@@ -21,6 +21,10 @@ requires-python = ">=3.9"
 dependencies = [
     "platformdirs>=3.0",
     "onnxruntime>=1.18.0",
+    "optimum[onnxruntime]>=1.20.0",
+    "transformers>=4.40.0",
+    "huggingface_hub>=0.23.0",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
