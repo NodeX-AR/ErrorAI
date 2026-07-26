@@ -81,18 +81,15 @@ class Applier:
         path = file_path.resolve()
         if not self.can_edit(path):
             return ApplyResult(False, "Blocked by safe mode restrictions.")
-
         lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
         if lineno < 1 or lineno > len(lines):
             return ApplyResult(False, "Line number out of range.")
-
         old_line = lines[lineno - 1]
         indentation = old_line[: len(old_line) - len(old_line.lstrip())]
         candidate = f"{indentation}{new_line.strip()}\n"
         preview = f"- {old_line.rstrip()}\n+ {candidate.rstrip()}"
         if self.config.dry_run:
             return ApplyResult(False, "Dry-run mode enabled; no write applied.", preview=preview)
-
         lines[lineno - 1] = candidate
         path.write_text("".join(lines), encoding="utf-8")
         return ApplyResult(True, "Edit applied.", preview=preview)
