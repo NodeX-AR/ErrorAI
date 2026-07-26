@@ -1,311 +1,167 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-import linecache
+import os
 import sys
-import threading
-import traceback
-from types import TracebackType
-from typing import Any
+from typing import Any, Dict
 
-from .bootstrap import BootstrapStatus, ensure_model, model_status
-from .config import ErrorAIConfig, autostart_enabled, load_config
-from .environment import Capabilities, detect_capabilities
-from .pipeline import Analyzer, Applier, Planner, Reporter, Watcher
-from .providers import ModelProvider, RulesOnlyProvider, HttpApiProvider
+
+def _default_project_root() -> Path:
+    """Prefer the directory of the script actually being run.
+
+    Path.cwd() is wrong in IDLE (and many IDEs): "Run Module" does not chdir
+    into the script's folder, it just sets sys.argv[0] to the script path.
+    Falling back to cwd() there means the running file is almost never
+    considered "inside" project_root, and every fix silently gets blocked by
+    Applier.can_edit().
+    """
+    try:
+        candidate = sys.argv[0]
+        if candidate and Path(candidate).is_file():
+            return Path(candidate).resolve().parent
+    except Exception:
+        pass
+    return Path.cwd()
 
 try:
-    from .providers import LlamaCppProvider
-except ImportError:  # pragma: no cover - optional dependency
-    LlamaCppProvider = None  # type: ignore[assignment,misc]
-
-try:
-    from .providers import OnnxProvider
-except ImportError:  # pragma: no cover - optional dependency
-    OnnxProvider = None  # type: ignore[assignment,misc]
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
+    import tomli as tomllib
 
 
-class RuntimeManager:
-    _instance: "RuntimeManager | None" = None
-    _instance_lock = threading.Lock()
+def _default_cache_dir() -> Path:
+    try:
+        from platformdirs import user_cache_dir
 
-    def __init__(self) -> None:
-        self._init_lock = threading.Lock()
-        self._initialized = False
-        self.config: ErrorAIConfig | None = None
-        self.capabilities: Capabilities | None = None
-        self.reporter: Reporter | None = None
-        self.analyzer: Analyzer | None = None
-        self.planner: Planner | None = None
-        self.applier: Applier | None = None
-        self.watcher: Watcher | None = None
-        self.provider: ModelProvider = RulesOnlyProvider()
-        self.bootstrap_status = BootstrapStatus(False, "rules-only", "Not initialized.", None)
-        self.mode = "rules-only"
-        self._orig_sys_hook = sys.excepthook
-        self._orig_thread_hook = getattr(threading, "excepthook", None)
-        self._orig_idle_print_exception = None
-        self._idle_hook_installed = False
-
-    @classmethod
-    def get_instance(cls) -> "RuntimeManager":
-        with cls._instance_lock:
-            if cls._instance is None:
-                cls._instance = cls()
-            return cls._instance
-
-    def initialize(self, config_override: ErrorAIConfig | None = None) -> "RuntimeManager":
-        if not autostart_enabled():
-            return self
-        with self._init_lock:
-            if self._initialized:
-                return self
-
-            self.config = config_override or load_config()
-            self.capabilities = detect_capabilities()
-            self.reporter = Reporter(self.config.runtime.project_root)
-            self.analyzer = Analyzer()
-            self.applier = Applier(self.config.runtime)
-            if self.config.model.provider in ("onnx", "llama_cpp"):
-                self.bootstrap_status = ensure_model(self.config.model, explicit=False)
-            else:
-                self.bootstrap_status = BootstrapStatus(
-                    True, "remote", "Using remote HTTP API provider; no local model needed.", None
-                )
-            self.provider = self._select_provider(self.bootstrap_status)
-            self.planner = Planner(self.provider)
-            self.watcher = Watcher(self.capabilities, self.reporter)
-            self._register_hooks()
-            watch_started = False
-            if self.config.runtime.auto_watch:
-                watch_started = self.watcher.start()
-            self.mode = "full" if self.bootstrap_status.ready and watch_started else "analyze-only"
-            if not self.bootstrap_status.ready:
-                self.mode = "rules-only"
-            self.reporter.log(
-                "runtime.initialized",
-                {
-                    "environment": self.capabilities.environment,
-                    "mode": self.mode,
-                    "model_mode": self.bootstrap_status.mode,
-                    "idle_hook_installed": self._idle_hook_installed,
-                },
-            )
-            self._initialized = True
-        return self
-
-    def _select_provider(self, status: BootstrapStatus) -> ModelProvider:
-        if self.config is None:
-            return RulesOnlyProvider()
-
-        provider_name = self.config.model.provider
-
-        if provider_name == "http_api":
-            return HttpApiProvider(self.config.model)
-
-        if not status.ready or status.model_path is None:
-            return RulesOnlyProvider()
-
-        if provider_name == "onnx":
-            if OnnxProvider is None:
-                return RulesOnlyProvider()
-            try:
-                return OnnxProvider(self.config.model, status.model_path)
-            except Exception:
-                return RulesOnlyProvider()
-
-        if provider_name == "llama_cpp":
-            if LlamaCppProvider is None:
-                return RulesOnlyProvider()
-            try:
-                return LlamaCppProvider(self.config.model, status.model_path)
-            except Exception:
-                return RulesOnlyProvider()
-
-        return RulesOnlyProvider()
-
-    def _register_hooks(self) -> None:
-        self._orig_sys_hook = sys.excepthook
-        sys.excepthook = self._sys_excepthook
-        if hasattr(threading, "excepthook"):
-            self._orig_thread_hook = threading.excepthook
-            threading.excepthook = self._thread_excepthook
-
-        if self.capabilities and self.capabilities.environment == "idle":
-            self._install_idle_hook()
-
-    def _install_idle_hook(self) -> None:
-        """IDLE runs user code inside idlelib.run's own exec/except loop and
-        prints tracebacks itself via idlelib.run.print_exception, so the
-        exception never reaches sys.excepthook. Patch that function directly.
-        """
-        try:
-            import idlelib.run as idle_run
-        except ImportError:  # pragma: no cover - not actually running under IDLE
-            return
-
-        if self._idle_hook_installed:
-            return
-
-        self._orig_idle_print_exception = idle_run.print_exception
-
-        def patched_print_exception() -> None:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            handled = False
-            if exc_type is not None:
-                handled = self.process_exception(exc_type, exc_value, exc_tb)
-            if handled:
-                print("[errorai] exception intercepted")
-                return
-            if self._orig_idle_print_exception is not None:
-                self._orig_idle_print_exception()
-
-        idle_run.print_exception = patched_print_exception
-        self._idle_hook_installed = True
-
-    def _uninstall_idle_hook(self) -> None:
-        if not self._idle_hook_installed:
-            return
-        try:
-            import idlelib.run as idle_run
-        except ImportError:  # pragma: no cover
-            self._idle_hook_installed = False
-            return
-        if self._orig_idle_print_exception is not None:
-            idle_run.print_exception = self._orig_idle_print_exception
-        self._idle_hook_installed = False
-
-    def _sys_excepthook(self, exc_type, exc_value, exc_tb):
-        handled = self.process_exception(exc_type, exc_value, exc_tb)
-        if handled:
-            print("[errorai] exception intercepted")
-            return
-        if self._orig_sys_hook:
-            self._orig_sys_hook(exc_type, exc_value, exc_tb)
-
-    def _thread_excepthook(self, args):
-        handled = self.process_exception(args.exc_type, args.exc_value, args.exc_traceback)
-        if handled:
-            print("[errorai] thread exception intercepted")
-            return
-        if self._orig_thread_hook:
-            self._orig_thread_hook(args)
-
-    def process_exception(self, exc_type, exc_value, exc_tb: TracebackType | None) -> bool:
-        if not exc_tb or not self.analyzer or not self.planner or not self.applier or not self.reporter:
-            return False
-        tb_list = traceback.extract_tb(exc_tb)
-        if not tb_list:
-            return False
-        frame = tb_list[-1]
-        filename = frame.filename
-        line = linecache.getline(filename, frame.lineno).strip() if filename else ""
-        analysis = self.analyzer.analyze_exception(exc_type, exc_value, exc_tb)
-        try:
-            plan = self.planner.plan_line_fix(line or frame.line or "", analysis["message"])
-        except Exception as provider_exc:
-            # Never let a broken/missing model provider raise out of an
-            # exception hook -- that can crash the interpreter (or IDLE's
-            # subprocess) while it's in the middle of handling an exception.
-            self.reporter.log(
-                "provider.error",
-                {"analysis": analysis, "error": f"{type(provider_exc).__name__}: {provider_exc}"},
-            )
-            print(f"[errorai] Model provider failed ({type(provider_exc).__name__}: {provider_exc})")
-            return False
-
-        if not plan or not filename or "<" in filename:
-            self.reporter.log("exception.analyzed", {"analysis": analysis, "fixed": False})
-            print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
-            print("[errorai] No automatic fix rule matched this error.")
-            return False
-
-        print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
-        print(f"[errorai] Suggested fix -> {plan}")
-
-        if self.capabilities and self.capabilities.can_prompt_user:
-            try:
-                answer = input("[errorai] Should I fix it [Y/N]: ").strip().lower()
-            except (EOFError, OSError):
-                answer = "n"
-            if answer not in {"y", "yes"}:
-                self.reporter.log("exception.declined", {"analysis": analysis})
-                print("[errorai] Skipped.")
-                return False
-
-        result = self.applier.apply_line_change(Path(filename), frame.lineno, plan)
-        self.reporter.log(
-            "exception.handled",
-            {
-                "analysis": analysis,
-                "changed": result.changed,
-                "detail": result.detail,
-                "preview": result.preview,
-            },
-        )
-        if result.preview and not result.changed:
-            print("[errorai] suggested fix (dry-run, not applied):")
-            print(result.preview)
-            print("[errorai] set dry_run = false in .errorai.toml to auto-apply")
-        elif result.changed:
-            print(f"[errorai] Applied fix to {filename}:{frame.lineno}")
-        return result.changed
-
-    def status_report(self) -> dict[str, Any]:
-        cfg = self.config or load_config()
-        caps = self.capabilities or detect_capabilities()
-        model = model_status(cfg.model)
-        return {
-            "environment": caps.environment,
-            "can_watch_fs": caps.can_watch_fs,
-            "can_apply_patches": caps.can_apply_patches,
-            "mode": self.mode,
-            "model_ready": model.ready,
-            "model_mode": self.bootstrap_status.mode,
-            "model_detail": self.bootstrap_status.detail,
-            "dry_run": cfg.runtime.dry_run,
-            "project_root": str(cfg.runtime.project_root),
-            "idle_hook_installed": self._idle_hook_installed,
-        }
-
-    def install_model(self) -> BootstrapStatus:
-        if self.config is None:
-            self.config = load_config()
-        self.bootstrap_status = ensure_model(self.config.model, explicit=True)
-        return self.bootstrap_status
-
-    def configure(self, **overrides) -> None:
-        if self.config is None:
-            self.config = load_config()
-        runtime_values = overrides.get("runtime", {})
-        model_values = overrides.get("model", {})
-        self.config = ErrorAIConfig(
-            runtime=replace(self.config.runtime, **runtime_values),
-            model=replace(self.config.model, **model_values),
-        )
-
-    def shutdown(self) -> None:
-        sys.excepthook = self._orig_sys_hook
-        if hasattr(threading, "excepthook") and self._orig_thread_hook is not None:
-            threading.excepthook = self._orig_thread_hook
-        self._uninstall_idle_hook()
-        self._initialized = False
+        return Path(user_cache_dir("errorai", "ErrorAI"))
+    except Exception:
+        return Path.home() / ".cache" / "errorai"
 
 
-def get_runtime() -> RuntimeManager:
-    return RuntimeManager.get_instance()
+@dataclass(frozen=True)
+class RuntimeConfig:
+    auto_watch: bool = True
+    safe_mode: bool = True
+    dry_run: bool = True
+    project_root: Path = field(default_factory=_default_project_root)
+    ignore_patterns: tuple[str, ...] = (
+        ".git",
+        "__pycache__",
+        ".env",
+        ".venv",
+        "venv",
+        "node_modules",
+        "*.lock",
+        ".errorai",
+    )
 
 
-def configure(**overrides) -> RuntimeManager:
-    runtime = get_runtime()
-    runtime.configure(**overrides)
-    return runtime
+@dataclass(frozen=True)
+class ModelConfig:
+    provider: str = "onnx"
+    name: str = "onnx-qwen2.5-coder-0.5b"
+    repo_id: str = "onnx-community/Qwen2.5-Coder-0.5B-Instruct"
+    model_url: str = (
+        "https://huggingface.co/onnx-community/Qwen2.5-Coder-0.5B-Instruct/resolve/main/"
+        "onnx/model.onnx"
+    )
+    context_window: int = 4096
+    temperature: float = 0.1
+    auto_bootstrap: bool = True
+    download_timeout: int = 600
+    cache_dir: Path = field(default_factory=_default_cache_dir)
+    # Only used when provider = "http_api". Sends the errroring line + message
+    # to this endpoint instead of running a local model. Opt-in only: unlike
+    # the local onnx/llama_cpp providers, this means code leaves the machine.
+    http_api_base_url: str = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
+    http_api_model: str = "qwen2.5-coder-32b-instruct"
+    http_api_timeout: float = 8.0
 
 
-def _reset_for_tests() -> None:
-    runtime = RuntimeManager._instance
-    if runtime is not None:
-        runtime.shutdown()
-    RuntimeManager._instance = None
-    
+@dataclass(frozen=True)
+class ErrorAIConfig:
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+
+
+def _read_toml(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def _coerce_runtime(base: RuntimeConfig, values: Dict[str, Any]) -> RuntimeConfig:
+    data = {}
+    for key in ("auto_watch", "safe_mode", "dry_run"):
+        if key in values:
+            data[key] = bool(values[key])
+    if "ignore_patterns" in values:
+        data["ignore_patterns"] = tuple(str(v) for v in values["ignore_patterns"])
+    if "project_root" in values:
+        data["project_root"] = Path(values["project_root"]).resolve()
+    return replace(base, **data)
+
+
+def _coerce_model(base: ModelConfig, values: Dict[str, Any]) -> ModelConfig:
+    data = {}
+    for key in ("provider", "name", "repo_id", "model_url"):
+        if key in values:
+            data[key] = str(values[key])
+    if "context_window" in values:
+        data["context_window"] = int(values["context_window"])
+    if "temperature" in values:
+        data["temperature"] = float(values["temperature"])
+    if "auto_bootstrap" in values:
+        data["auto_bootstrap"] = bool(values["auto_bootstrap"])
+    if "download_timeout" in values:
+        data["download_timeout"] = int(values["download_timeout"])
+    if "cache_dir" in values:
+        data["cache_dir"] = Path(values["cache_dir"]).expanduser().resolve()
+    if "http_api_base_url" in values:
+        data["http_api_base_url"] = str(values["http_api_base_url"])
+    if "http_api_model" in values:
+        data["http_api_model"] = str(values["http_api_model"])
+    if "http_api_timeout" in values:
+        data["http_api_timeout"] = float(values["http_api_timeout"])
+    return replace(base, **data)
+
+
+def load_config(project_root: Path | None = None) -> ErrorAIConfig:
+    root = (project_root or Path.cwd()).resolve()
+    config = ErrorAIConfig(runtime=RuntimeConfig(project_root=root))
+    pyproject = _read_toml(root / "pyproject.toml")
+    pyproject_settings = pyproject.get("tool", {}).get("errorai", {})
+    local_settings = _read_toml(root / ".errorai.toml")
+
+    runtime_values = {}
+    model_values = {}
+    for source in (pyproject_settings, local_settings):
+        runtime_values.update(source.get("runtime", {}))
+        model_values.update(source.get("model", {}))
+
+    return ErrorAIConfig(
+        runtime=_coerce_runtime(config.runtime, runtime_values),
+        model=_coerce_model(config.model, model_values),
+    )
+
+
+def config_template() -> str:
+    return """[runtime]
+auto_watch = true
+safe_mode = true
+dry_run = true
+ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules", "*.lock", ".errorai"]
+
+[model]
+provider = "onnx"
+name = "onnx-default-python-expert"
+context_window = 4096
+temperature = 0.1
+auto_bootstrap = true
+"""
+
+
+def autostart_enabled() -> bool:
+    return os.environ.get("ERRORAI_AUTOSTART", "1") != "0"
