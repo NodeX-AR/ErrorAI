@@ -129,7 +129,7 @@ def _coerce_model(base: ModelConfig, values: Dict[str, Any]) -> ModelConfig:
 
 
 def load_config(project_root: Path | None = None) -> ErrorAIConfig:
-    root = (project_root or Path.cwd()).resolve()
+    root = (project_root or _default_project_root()).resolve()
     config = ErrorAIConfig(runtime=RuntimeConfig(project_root=root))
     pyproject = _read_toml(root / "pyproject.toml")
     pyproject_settings = pyproject.get("tool", {}).get("errorai", {})
@@ -160,6 +160,14 @@ name = "onnx-default-python-expert"
 context_window = 4096
 temperature = 0.1
 auto_bootstrap = true
+# To use a free, keyless hosted API instead of a local model, set:
+#   provider = "http_api"
+# This sends the erroring line + message to http_api_base_url (default:
+# OVHcloud AI Endpoints' anonymous tier -- no signup, no key, ~2 req/min).
+# Only enable this if you're OK with that line leaving your machine.
+# http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
+# http_api_model = "qwen2.5-coder-32b-instruct"
+# http_api_timeout = 8.0
 """
 
 
