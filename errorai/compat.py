@@ -50,19 +50,5 @@ def global_activate():
     return runtime
 
 
-# Auto-activate globally upon import
+# Automatically trigger global activation on import so zero-config works!
 global_activate()
-
-
-# Frame-level trace fallback to intercept exceptions in IDLE/interactive shells
-def _global_trace(frame, event, arg):
-    if event == "exception":
-        exc_type, exc_value, exc_tb = arg
-        if exc_type and exc_tb:
-            get_runtime().process_exception(exc_type, exc_value, exc_tb)
-    return _global_trace
-
-
-# Enable global tracing if running interactively or inside IDLE
-if "idlelib" in sys.modules:
-    sys.settrace(_global_trace)
