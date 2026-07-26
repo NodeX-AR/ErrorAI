@@ -38,6 +38,11 @@ def _download_onnx_model(config: ModelConfig, destination: Path) -> None:
         snapshot_download(
             repo_id=config.repo_id,
             cache_dir=str(config.cache_dir / "hf_cache"),
+            allow_patterns=[
+                "*.json",
+                "*.txt",
+                "onnx/model_int8.onnx",
+            ],
         )
     )
     if destination.exists() or destination.is_symlink():
