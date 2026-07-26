@@ -41,14 +41,16 @@ class RuntimeConfig:
 @dataclass(frozen=True)
 class ModelConfig:
     provider: str = "onnx"
-    name: str = "onnx-default-python-expert"
+    name: str = "onnx-qwen2.5-coder-0.5b"
+    repo_id: str = "onnx-community/Qwen2.5-Coder-0.5B-Instruct-ONNX"
     model_url: str = (
-        "https://huggingface.co/onnx-community/Qwen2.5-Coder-1.5B-Instruct-ONNX/resolve/main/"
+        "https://huggingface.co/onnx-community/Qwen2.5-Coder-0.5B-Instruct-ONNX/resolve/main/"
         "model.onnx"
     )
     context_window: int = 4096
     temperature: float = 0.1
     auto_bootstrap: bool = True
+    download_timeout: int = 600
     cache_dir: Path = field(default_factory=_default_cache_dir)
 
 
@@ -79,7 +81,7 @@ def _coerce_runtime(base: RuntimeConfig, values: Dict[str, Any]) -> RuntimeConfi
 
 def _coerce_model(base: ModelConfig, values: Dict[str, Any]) -> ModelConfig:
     data = {}
-    for key in ("provider", "name", "model_url"):
+    for key in ("provider", "name", "repo_id", "model_url"):
         if key in values:
             data[key] = str(values[key])
     if "context_window" in values:
@@ -88,6 +90,8 @@ def _coerce_model(base: ModelConfig, values: Dict[str, Any]) -> ModelConfig:
         data["temperature"] = float(values["temperature"])
     if "auto_bootstrap" in values:
         data["auto_bootstrap"] = bool(values["auto_bootstrap"])
+    if "download_timeout" in values:
+        data["download_timeout"] = int(values["download_timeout"])
     if "cache_dir" in values:
         data["cache_dir"] = Path(values["cache_dir"]).expanduser().resolve()
     return replace(base, **data)
