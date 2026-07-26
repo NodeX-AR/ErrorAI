@@ -95,12 +95,18 @@ class RuntimeManager:
             threading.excepthook = self._thread_excepthook
 
     def _sys_excepthook(self, exc_type, exc_value, exc_tb):
-        self.process_exception(exc_type, exc_value, exc_tb)
+        handled = self.process_exception(exc_type, exc_value, exc_tb)
+        if handled:
+            print("[errorai] exception intercepted")
+            return
         if self._orig_sys_hook:
             self._orig_sys_hook(exc_type, exc_value, exc_tb)
 
     def _thread_excepthook(self, args):
-        self.process_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        handled = self.process_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        if handled:
+            print("[errorai] thread exception intercepted")
+            return
         if self._orig_thread_hook:
             self._orig_thread_hook(args)
 
