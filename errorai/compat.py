@@ -20,6 +20,9 @@ def watch(func):
 
 
 class catch_errors:
+    def __init__(self, func=None):
+        self.func = func
+
     def __enter__(self):
         return self
 
@@ -29,8 +32,37 @@ class catch_errors:
         get_runtime().process_exception(exc_type, exc_value, exc_tb)
         return True
 
+    def __call__(self, *args, **kwargs):
+        if callable(self.func):
+            @functools.wraps(self.func)
+            def inner(*wargs, **wkwargs):
+                try:
+                    return self.func(*wargs, **wkwargs)
+                except Exception as e:
+                    get_runtime().process_exception(type(e), e, e.__traceback__)
+                    raise
+            return inner(*args, **kwargs)
+
 
 def global_activate():
     runtime = get_runtime()
     runtime.initialize()
     return runtime
+
+
+# Auto-activate globally upon import
+global_activate()
+
+
+# Frame-level trace fallback to intercept exceptions in IDLE/interactive shells
+def _global_trace(frame, event, arg):
+    if event == "exception":
+        exc_type, exc_value, exc_tb = arg
+        if exc_type and exc_tb:
+            get_runtime().process_exception(exc_type, exc_value, exc_tb)
+    return _global_trace
+
+
+# Enable global tracing if running interactively or inside IDLE
+if "idlelib" in sys.modules:
+    sys.settrace(_global_trace)
