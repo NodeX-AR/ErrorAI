@@ -13,7 +13,7 @@ from .bootstrap import BootstrapStatus, ensure_model, model_status
 from .config import ErrorAIConfig, autostart_enabled, load_config
 from .environment import Capabilities, detect_capabilities
 from .pipeline import Analyzer, Applier, Planner, Reporter, Watcher
-from .providers import ModelProvider, RulesOnlyProvider
+from .providers import ModelProvider, RulesOnlyProvider, HttpApiProvider
 
 try:
     from .providers import LlamaCppProvider
@@ -67,7 +67,12 @@ class RuntimeManager:
             self.reporter = Reporter(self.config.runtime.project_root)
             self.analyzer = Analyzer()
             self.applier = Applier(self.config.runtime)
-            self.bootstrap_status = ensure_model(self.config.model, explicit=False)
+            if self.config.model.provider in ("onnx", "llama_cpp"):
+                self.bootstrap_status = ensure_model(self.config.model, explicit=False)
+            else:
+                self.bootstrap_status = BootstrapStatus(
+                    True, "remote", "Using remote HTTP API provider; no local model needed.", None
+                )
             self.provider = self._select_provider(self.bootstrap_status)
             self.planner = Planner(self.provider)
             self.watcher = Watcher(self.capabilities, self.reporter)
@@ -91,10 +96,16 @@ class RuntimeManager:
         return self
 
     def _select_provider(self, status: BootstrapStatus) -> ModelProvider:
-        if not status.ready or status.model_path is None or self.config is None:
+        if self.config is None:
             return RulesOnlyProvider()
 
         provider_name = self.config.model.provider
+
+        if provider_name == "http_api":
+            return HttpApiProvider(self.config.model)
+
+        if not status.ready or status.model_path is None:
+            return RulesOnlyProvider()
 
         if provider_name == "onnx":
             if OnnxProvider is None:
