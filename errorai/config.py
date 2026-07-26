@@ -71,6 +71,12 @@ class ModelConfig:
     auto_bootstrap: bool = True
     download_timeout: int = 600
     cache_dir: Path = field(default_factory=_default_cache_dir)
+    # Only used when provider = "http_api". Sends the errroring line + message
+    # to this endpoint instead of running a local model. Opt-in only: unlike
+    # the local onnx/llama_cpp providers, this means code leaves the machine.
+    http_api_base_url: str = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
+    http_api_model: str = "qwen2.5-coder-32b-instruct"
+    http_api_timeout: float = 8.0
 
 
 @dataclass(frozen=True)
@@ -113,6 +119,12 @@ def _coerce_model(base: ModelConfig, values: Dict[str, Any]) -> ModelConfig:
         data["download_timeout"] = int(values["download_timeout"])
     if "cache_dir" in values:
         data["cache_dir"] = Path(values["cache_dir"]).expanduser().resolve()
+    if "http_api_base_url" in values:
+        data["http_api_base_url"] = str(values["http_api_base_url"])
+    if "http_api_model" in values:
+        data["http_api_model"] = str(values["http_api_model"])
+    if "http_api_timeout" in values:
+        data["http_api_timeout"] = float(values["http_api_timeout"])
     return replace(base, **data)
 
 
