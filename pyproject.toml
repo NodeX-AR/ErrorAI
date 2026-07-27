@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ErrorAI"
-version = "1.16.0"
+version = "2.0.0"
 description = "Python-only autonomous runtime that watches/analyzes errors with safe local auto-fix fallbacks."
 readme = "README.md"
 authors = [
