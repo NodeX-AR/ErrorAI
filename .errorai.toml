@@ -17,7 +17,7 @@ ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules
 provider = "http_api"
 http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
 http_api_model = "Qwen3-Coder-30B-A3B-Instruct"
-http_api_timeout = 8.0
+http_api_timeout = 60.0
 
 # To run a fully local, offline model instead (nothing leaves your
 # machine), install the extra:  pip install ErrorAI[pro]
