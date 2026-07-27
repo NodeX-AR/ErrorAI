@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-import linecache
 import sys
 import threading
 import traceback
@@ -200,33 +199,46 @@ class RuntimeManager:
             return False
         frame = tb_list[-1]
         filename = frame.filename
-        line = linecache.getline(filename, frame.lineno).strip() if filename else ""
+        if not filename or "<" in filename:
+            return False
+        try:
+            source = Path(filename).read_text(encoding="utf-8")
+        except OSError:
+            return False
         analysis = self.analyzer.analyze_exception(exc_type, exc_value, exc_tb)
         try:
-            plan = self.planner.plan_line_fix(line or frame.line or "", analysis["message"])
+            plan = self.planner.plan_file_fix(source, analysis["message"], frame.lineno)
         except Exception as provider_exc:
             # Never let a broken/missing model provider raise out of an
             # exception hook -- that can crash the interpreter (or IDLE's
             # subprocess) while it's in the middle of handling an exception.
+            # Capture the full traceback (not just the exception repr) so
+            # the real failure point inside the provider is diagnosable
+            # from the log instead of just seeing a bare TypeError.
             self.reporter.log(
                 "provider.error",
-                {"analysis": analysis, "error": f"{type(provider_exc).__name__}: {provider_exc}"},
+                {
+                    "analysis": analysis,
+                    "error": f"{type(provider_exc).__name__}: {provider_exc}",
+                    "traceback": traceback.format_exc(),
+                },
             )
             print(f"[errorai] Model provider failed ({type(provider_exc).__name__}: {provider_exc})")
+            print(f"[errorai] See {self.reporter.log_path} for full traceback.")
             return False
 
-        if not plan or not filename or "<" in filename:
+        print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
+
+        if not plan or plan == source:
             self.reporter.log("exception.analyzed", {"analysis": analysis, "fixed": False})
-            print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
             provider_reason = getattr(self.provider, "last_error", None)
             if provider_reason:
                 print(f"[errorai] No fix: provider request failed ({provider_reason})")
             else:
-                print("[errorai] No automatic fix rule matched this error.")
+                print("[errorai] No automatic fix found for this error.")
             return False
 
-        print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
-        print(f"[errorai] Suggested fix -> {plan}")
+        print("[errorai] Suggested fix ready (whole-file edit).")
 
         if self.capabilities and self.capabilities.can_prompt_user:
             try:
@@ -238,7 +250,7 @@ class RuntimeManager:
                 print("[errorai] Skipped.")
                 return False
 
-        result = self.applier.apply_line_change(Path(filename), frame.lineno, plan)
+        result = self.applier.apply_file_change(Path(filename), plan)
         self.reporter.log(
             "exception.handled",
             {
@@ -249,11 +261,10 @@ class RuntimeManager:
             },
         )
         if result.preview and not result.changed:
-            print("[errorai] suggested fix (dry-run, not applied):")
-            print(result.preview)
+            print(f"[errorai] suggested fix (dry-run, not applied): {result.preview}")
             print("[errorai] set dry_run = false in .errorai.toml to auto-apply")
         elif result.changed:
-            print(f"[errorai] Applied fix to {filename}:{frame.lineno}")
+            print(f"[errorai] Applied fix to {filename}")
         return result.changed
 
     def status_report(self) -> dict[str, Any]:
@@ -312,4 +323,3 @@ def _reset_for_tests() -> None:
     if runtime is not None:
         runtime.shutdown()
     RuntimeManager._instance = None
-    
