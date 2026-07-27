@@ -2,12 +2,64 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+import ast
 import json
 import os
 import re
+import socket
 import urllib.error
 import urllib.request
 from .config import ModelConfig
+
+# Above this size, don't send the whole file to the model -- extract just the
+# enclosing function/class (or a line-window fallback) around the error
+# instead. A 10,000-line file sent whole on every fix would mean huge
+# latency, a token bill that blows the free tier's budget in one request,
+# and real risk of the model rewriting code far from the actual bug.
+WHOLE_FILE_CHAR_LIMIT = 3000
+
+
+def _find_enclosing_block(source: str, lineno: int, max_lines: int = 120) -> tuple[int, int] | None:
+    """Return the 1-indexed (start, end) line range of the smallest
+    function/class enclosing `lineno`, clamped to max_lines. None if the
+    source doesn't parse or nothing encloses the line.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    best: tuple[int, int] | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            start = node.lineno
+            end = getattr(node, "end_lineno", None) or start
+            if start <= lineno <= end:
+                if best is None or (end - start) < (best[1] - best[0]):
+                    best = (start, end)
+    if best is None:
+        return None
+    start, end = best
+    if end - start + 1 > max_lines:
+        half = max_lines // 2
+        start = max(start, lineno - half)
+        end = min(end, lineno + half)
+    return start, end
+
+
+def _get_patch_window(source: str, lineno: int) -> tuple[str, int, int]:
+    """Return (snippet, start_idx, end_idx) -- a 0-indexed line slice of
+    source around lineno, preferring the enclosing function/class and
+    falling back to a fixed line-count window if that can't be determined.
+    """
+    lines = source.splitlines(keepends=True)
+    block = _find_enclosing_block(source, lineno)
+    if block:
+        start_idx, end_idx = block[0] - 1, block[1]
+    else:
+        before, after = 40, 40
+        start_idx = max(0, lineno - 1 - before)
+        end_idx = min(len(lines), lineno + after)
+    return "".join(lines[start_idx:end_idx]), start_idx, end_idx
 
 
 class ModelProvider(ABC):
@@ -140,6 +192,11 @@ class OnnxProvider(ModelProvider):
 def _describe_request_error(exc: Exception) -> str:
     if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
         return "rate limited by the free tier (~2 requests/min per IP) -- wait a bit and try again"
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return (
+            "the model took too long to respond (larger files take longer) -- "
+            "try raising http_api_timeout in .errorai.toml"
+        )
     return f"{type(exc).__name__}: {exc}"
 
 
@@ -264,21 +321,19 @@ class HttpApiProvider(ModelProvider):
         return _clean_line_response(text, snippet)
 
     def suggest_file_patch(self, source: str, error_message: str, lineno: int) -> str | None:
-        prompt = (
-            "Fix the Python error below with the smallest reasonable change. "
-            "Reply with ONLY the full corrected file contents -- no "
-            "explanation, no markdown fences, no commentary.\n\n"
-            f"Error on line {lineno}: {error_message}\n\n"
-            f"File:\n{source}"
-        )
+        if len(source) <= WHOLE_FILE_CHAR_LIMIT:
+            return self._whole_file_patch(source, error_message, lineno)
+        return self._windowed_patch(source, error_message, lineno)
+
+    def _call_chat_api(self, prompt: str, system: str, max_tokens: int) -> str | None:
         payload = json.dumps(
             {
                 "model": self.config.http_api_model,
                 "messages": [
-                    {"role": "system", "content": "You output only corrected full source files, never prose."},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
-                "max_tokens": 2000,
+                "max_tokens": max_tokens,
                 "temperature": 0.0,
             }
         ).encode("utf-8")
@@ -291,8 +346,43 @@ class HttpApiProvider(ModelProvider):
         try:
             with urllib.request.urlopen(request, timeout=self.config.http_api_timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
-            text = body["choices"][0]["message"]["content"]
+            return body["choices"][0]["message"]["content"]
         except Exception as exc:
             self.last_error = _describe_request_error(exc)
             return None
+
+    def _whole_file_patch(self, source: str, error_message: str, lineno: int) -> str | None:
+        prompt = (
+            "Fix the Python error below with the smallest reasonable change. "
+            "Reply with ONLY the full corrected file contents -- no "
+            "explanation, no markdown fences, no commentary.\n\n"
+            f"Error on line {lineno}: {error_message}\n\n"
+            f"File:\n{source}"
+        )
+        text = self._call_chat_api(prompt, "You output only corrected full source files, never prose.", 4000)
         return _clean_file_response(text)
+
+    def _windowed_patch(self, source: str, error_message: str, lineno: int) -> str | None:
+        # Large file: only send the enclosing function/class (or a bounded
+        # line-window) around the error, not the whole thing. Splice the
+        # corrected snippet back into the untouched rest of the file.
+        lines = source.splitlines(keepends=True)
+        snippet, start_idx, end_idx = _get_patch_window(source, lineno)
+        window_lineno = lineno - start_idx
+        prompt = (
+            "Fix the Python error below with the smallest reasonable change. "
+            "This is a SNIPPET taken from a much larger file -- the rest of "
+            "the file continues before and after it unchanged, so only fix "
+            "what's shown and leave unrelated lines exactly as they are. "
+            "Reply with ONLY the corrected snippet -- no explanation, no "
+            "markdown fences, no commentary.\n\n"
+            f"Error on line {window_lineno} of this snippet: {error_message}\n\n"
+            f"Snippet:\n{snippet}"
+        )
+        text = self._call_chat_api(prompt, "You output only corrected code snippets, never prose.", 1500)
+        fixed_snippet = _clean_file_response(text)
+        if not fixed_snippet:
+            return None
+        if snippet.endswith("\n") and not fixed_snippet.endswith("\n"):
+            fixed_snippet += "\n"
+        return "".join(lines[:start_idx]) + fixed_snippet + "".join(lines[end_idx:])
