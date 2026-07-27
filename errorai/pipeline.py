@@ -44,6 +44,9 @@ class Planner:
     def plan_line_fix(self, line: str, error_message: str) -> str | None:
         return self.provider.suggest_patch(line, error_message)
 
+    def plan_file_fix(self, source: str, error_message: str, lineno: int) -> str | None:
+        return self.provider.suggest_file_patch(source, error_message, lineno)
+
 
 @dataclass
 class ApplyResult:
@@ -93,6 +96,19 @@ class Applier:
         lines[lineno - 1] = candidate
         path.write_text("".join(lines), encoding="utf-8")
         return ApplyResult(True, "Edit applied.", preview=preview)
+
+    def apply_file_change(self, file_path: Path, new_content: str) -> ApplyResult:
+        path = file_path.resolve()
+        if not self.can_edit(path):
+            return ApplyResult(False, "Blocked by safe mode restrictions.")
+        old_content = path.read_text(encoding="utf-8")
+        if new_content == old_content:
+            return ApplyResult(False, "Model returned an unchanged file; no fix found.")
+        preview = f"{len(old_content.splitlines())} lines -> {len(new_content.splitlines())} lines"
+        if self.config.dry_run:
+            return ApplyResult(False, "Dry-run mode enabled; no write applied.", preview=preview)
+        path.write_text(new_content, encoding="utf-8")
+        return ApplyResult(True, "Whole-file edit applied.", preview=preview)
 
 
 class Watcher:
