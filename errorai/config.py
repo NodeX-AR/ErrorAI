@@ -86,6 +86,10 @@ class ModelConfig:
     http_api_base_url: str = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
     http_api_model: str = "Qwen3-Coder-30B-A3B-Instruct"
     http_api_timeout: float = 8.0
+    # Optional. The anonymous tier is capped at ~2 req/min per IP -- a free
+    # OVHcloud AI Endpoints account gets a higher limit. Set this or export
+    # OVH_AI_ENDPOINTS_ACCESS_TOKEN to use a registered key instead.
+    http_api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +138,8 @@ def _coerce_model(base: ModelConfig, values: Dict[str, Any]) -> ModelConfig:
         data["http_api_model"] = str(values["http_api_model"])
     if "http_api_timeout" in values:
         data["http_api_timeout"] = float(values["http_api_timeout"])
+    if "http_api_key" in values:
+        data["http_api_key"] = str(values["http_api_key"])
     return replace(base, **data)
 
 
@@ -177,6 +183,10 @@ provider = "http_api"
 http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
 http_api_model = "Qwen3-Coder-30B-A3B-Instruct"
 http_api_timeout = 8.0
+# Anonymous requests are capped at ~2 req/min per IP. For a higher limit,
+# create a free OVHcloud AI Endpoints account, generate a token, and set:
+# http_api_key = "..."
+# (or export OVH_AI_ENDPOINTS_ACCESS_TOKEN instead of putting it in this file)
 
 # To run a fully local, offline model instead (nothing leaves your
 # machine), install the extra:  pip install ErrorAI[pro]
