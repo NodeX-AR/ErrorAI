@@ -101,13 +101,21 @@ class Applier:
         path = file_path.resolve()
         if not self.can_edit(path):
             return ApplyResult(False, "Blocked by safe mode restrictions.")
-        old_content = path.read_text(encoding="utf-8")
+        try:
+            old_content = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return ApplyResult(False, f"Could not read file: {exc}")
         if new_content == old_content:
             return ApplyResult(False, "Model returned an unchanged file; no fix found.")
         preview = f"{len(old_content.splitlines())} lines -> {len(new_content.splitlines())} lines"
         if self.config.dry_run:
             return ApplyResult(False, "Dry-run mode enabled; no write applied.", preview=preview)
-        path.write_text(new_content, encoding="utf-8")
+        try:
+            path.write_text(new_content, encoding="utf-8")
+        except OSError as exc:
+            # Couldn't actually write (permissions, read-only fs, etc.) --
+            # fall back to showing the preview instead of erroring out.
+            return ApplyResult(False, f"Write failed ({exc}); showing preview instead.", preview=preview)
         return ApplyResult(True, "Whole-file edit applied.", preview=preview)
 
 
