@@ -261,8 +261,7 @@ class RuntimeManager:
             },
         )
         if result.preview and not result.changed:
-            print(f"[errorai] suggested fix (dry-run, not applied): {result.preview}")
-            print("[errorai] set dry_run = false in .errorai.toml to auto-apply")
+            print(f"[errorai] {result.detail} ({result.preview})")
         elif result.changed:
             print(f"[errorai] Applied fix to {filename}")
         return result.changed
