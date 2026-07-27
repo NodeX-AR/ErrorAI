@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 import sys
 import threading
+import time
 import traceback
 from types import TracebackType
 from typing import Any
@@ -46,6 +47,12 @@ class RuntimeManager:
         self._orig_thread_hook = getattr(threading, "excepthook", None)
         self._orig_idle_print_exception = None
         self._idle_hook_installed = False
+        # Cache of (filename, lineno, error message) -> (timestamp, plan, reason).
+        # If the exact same error occurs again shortly after (very common
+        # while iterating on a script), reuse the last result instead of
+        # spending another request against a rate-limited free API.
+        self._fix_cache: dict[tuple[str, int, str], tuple[float, "str | None", "str | None"]] = {}
+        self._FIX_CACHE_TTL = 90.0  # seconds
 
     @classmethod
     def get_instance(cls) -> "RuntimeManager":
@@ -206,32 +213,43 @@ class RuntimeManager:
         except OSError:
             return False
         analysis = self.analyzer.analyze_exception(exc_type, exc_value, exc_tb)
-        try:
-            plan = self.planner.plan_file_fix(source, analysis["message"], frame.lineno)
-        except Exception as provider_exc:
-            # Never let a broken/missing model provider raise out of an
-            # exception hook -- that can crash the interpreter (or IDLE's
-            # subprocess) while it's in the middle of handling an exception.
-            # Capture the full traceback (not just the exception repr) so
-            # the real failure point inside the provider is diagnosable
-            # from the log instead of just seeing a bare TypeError.
-            self.reporter.log(
-                "provider.error",
-                {
-                    "analysis": analysis,
-                    "error": f"{type(provider_exc).__name__}: {provider_exc}",
-                    "traceback": traceback.format_exc(),
-                },
-            )
-            print(f"[errorai] Model provider failed ({type(provider_exc).__name__}: {provider_exc})")
-            print(f"[errorai] See {self.reporter.log_path} for full traceback.")
-            return False
 
-        print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
+        cache_key = (filename, frame.lineno, analysis["message"])
+        now = time.monotonic()
+        cached = self._fix_cache.get(cache_key)
+        if cached and (now - cached[0]) < self._FIX_CACHE_TTL:
+            plan, provider_reason = cached[1], cached[2]
+            print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
+            print("[errorai] (reusing a suggestion from moments ago for this exact error)")
+        else:
+            try:
+                plan = self.planner.plan_file_fix(source, analysis["message"], frame.lineno)
+            except Exception as provider_exc:
+                # Never let a broken/missing model provider raise out of an
+                # exception hook -- that can crash the interpreter (or IDLE's
+                # subprocess) while it's in the middle of handling an exception.
+                # Capture the full traceback (not just the exception repr) so
+                # the real failure point inside the provider is diagnosable
+                # from the log instead of just seeing a bare TypeError.
+                self.reporter.log(
+                    "provider.error",
+                    {
+                        "analysis": analysis,
+                        "error": f"{type(provider_exc).__name__}: {provider_exc}",
+                        "traceback": traceback.format_exc(),
+                    },
+                )
+                print(f"[errorai] Model provider failed ({type(provider_exc).__name__}: {provider_exc})")
+                print(f"[errorai] See {self.reporter.log_path} for full traceback.")
+                self._fix_cache[cache_key] = (now, None, f"{type(provider_exc).__name__}: {provider_exc}")
+                return False
+
+            provider_reason = getattr(self.provider, "last_error", None)
+            self._fix_cache[cache_key] = (now, plan, provider_reason)
+            print(f"[errorai] Caught {analysis['type']}: {analysis['message']}")
 
         if not plan or plan == source:
             self.reporter.log("exception.analyzed", {"analysis": analysis, "fixed": False})
-            provider_reason = getattr(self.provider, "last_error", None)
             if provider_reason:
                 print(f"[errorai] No fix: provider request failed ({provider_reason})")
             else:
@@ -264,6 +282,9 @@ class RuntimeManager:
             print(f"[errorai] {result.detail} ({result.preview})")
         elif result.changed:
             print(f"[errorai] Applied fix to {filename}")
+            print("[errorai] This file was edited on disk, outside the editor. If it's still open in")
+            print("[errorai] IDLE, that tab's buffer is now stale -- close it (Ctrl+W) and reopen it")
+            print("[errorai] (Ctrl+O) before running again; IDLE has no reload/revert command.")
             print("[errorai] Re-running the fixed file from the top...")
             self._rerun_file(Path(filename))
         return result.changed
