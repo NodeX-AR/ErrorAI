@@ -14,6 +14,24 @@ class ModelProvider(ABC):
     def suggest_patch(self, snippet: str, error_message: str) -> str | None:
         raise NotImplementedError
 
+    def suggest_file_patch(self, source: str, error_message: str, lineno: int) -> str | None:
+        """Default: reuse the single-line fix, applied in place in the file.
+
+        Providers that can see and rewrite the whole file (e.g. HttpApiProvider)
+        should override this for fixes that need a new line, not just an edit
+        to the erroring one (e.g. defining a missing name).
+        """
+        lines = source.splitlines(keepends=True)
+        if lineno < 1 or lineno > len(lines):
+            return None
+        original_line = lines[lineno - 1]
+        fixed_line = self.suggest_patch(original_line.strip(), error_message)
+        if not fixed_line or fixed_line.strip() == original_line.strip():
+            return None
+        indent = original_line[: len(original_line) - len(original_line.lstrip())]
+        lines[lineno - 1] = f"{indent}{fixed_line.strip()}\n"
+        return "".join(lines)
+
 
 class RulesOnlyProvider(ModelProvider):
     def suggest_patch(self, snippet: str, error_message: str) -> str | None:
@@ -162,6 +180,17 @@ def _clean_line_response(text: str | None, original_line: str) -> str | None:
     return candidate or None
 
 
+def _clean_file_response(text: str | None) -> str | None:
+    """Strip a markdown code fence, if the model wrapped the file in one."""
+    if not text:
+        return None
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
+    return text or None
+
+
 @dataclass
 class HttpApiProvider(ModelProvider):
     """Uses a free, keyless, hosted chat-completions API instead of a local model.
@@ -216,3 +245,37 @@ class HttpApiProvider(ModelProvider):
             return None
 
         return _clean_line_response(text, snippet)
+
+    def suggest_file_patch(self, source: str, error_message: str, lineno: int) -> str | None:
+        prompt = (
+            "Fix the Python error below with the smallest reasonable change. "
+            "Reply with ONLY the full corrected file contents -- no "
+            "explanation, no markdown fences, no commentary.\n\n"
+            f"Error on line {lineno}: {error_message}\n\n"
+            f"File:\n{source}"
+        )
+        payload = json.dumps(
+            {
+                "model": self.config.http_api_model,
+                "messages": [
+                    {"role": "system", "content": "You output only corrected full source files, never prose."},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": 2000,
+                "temperature": 0.0,
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.config.http_api_base_url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.config.http_api_timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            text = body["choices"][0]["message"]["content"]
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return None
+        return _clean_file_response(text)
