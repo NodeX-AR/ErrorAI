@@ -136,6 +136,12 @@ class OnnxProvider(ModelProvider):
         return text or None
 
 
+def _describe_request_error(exc: Exception) -> str:
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+        return "rate limited by the free tier (~2 requests/min per IP) -- wait a bit and try again"
+    return f"{type(exc).__name__}: {exc}"
+
+
 _PROSE_PREFIXES = (
     "here", "here's", "sure", "the fix", "this fixes", "note:", "note that",
     "explanation", "you should", "to fix", "i ", "i'd", "the corrected",
@@ -241,7 +247,7 @@ class HttpApiProvider(ModelProvider):
             # response, endpoint changed shape, etc.) should degrade to "no
             # fix found", never bubble up and look like a crash. Stash the
             # real reason on the instance so the caller can log it if useful.
-            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.last_error = _describe_request_error(exc)
             return None
 
         return _clean_line_response(text, snippet)
@@ -276,6 +282,6 @@ class HttpApiProvider(ModelProvider):
                 body = json.loads(response.read().decode("utf-8"))
             text = body["choices"][0]["message"]["content"]
         except Exception as exc:
-            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.last_error = _describe_request_error(exc)
             return None
         return _clean_file_response(text)
