@@ -59,7 +59,11 @@ class RuntimeConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str = "onnx"
+    # Default is the free, keyless hosted API -- no local model download,
+    # no onnxruntime/optimum/transformers dependency needed. Installing the
+    # "pro" extra (`pip install ErrorAI[pro]`) pulls in those deps and lets
+    # you set provider = "onnx" for a fully local, offline model instead.
+    provider: str = "http_api"
     name: str = "onnx-qwen2.5-coder-0.5b"
     repo_id: str = "onnx-community/Qwen2.5-Coder-0.5B-Instruct"
     model_url: str = (
@@ -155,19 +159,24 @@ dry_run = true
 ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules", "*.lock", ".errorai"]
 
 [model]
-provider = "onnx"
-name = "onnx-default-python-expert"
-context_window = 4096
-temperature = 0.1
-auto_bootstrap = true
-# To use a free, keyless hosted API instead of a local model, set:
-#   provider = "http_api"
-# This sends the erroring line + message to http_api_base_url (default:
-# OVHcloud AI Endpoints' anonymous tier -- no signup, no key, ~2 req/min).
-# Only enable this if you're OK with that line leaving your machine.
-# http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
-# http_api_model = "qwen2.5-coder-32b-instruct"
-# http_api_timeout = 8.0
+# Default: free, keyless hosted API. No local model download, no
+# onnxruntime/optimum/transformers dependency required. This sends the
+# erroring line + message to http_api_base_url (default: OVHcloud AI
+# Endpoints' anonymous tier -- no signup, no key, ~2 req/min). Only keep
+# this if you're OK with that one line leaving your machine.
+provider = "http_api"
+http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
+http_api_model = "qwen2.5-coder-32b-instruct"
+http_api_timeout = 8.0
+
+# To run a fully local, offline model instead (nothing leaves your
+# machine), install the extra:  pip install ErrorAI[pro]
+# then switch this block to:
+# provider = "onnx"
+# name = "onnx-default-python-expert"
+# context_window = 4096
+# temperature = 0.1
+# auto_bootstrap = true
 """
 
 
