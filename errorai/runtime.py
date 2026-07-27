@@ -264,7 +264,23 @@ class RuntimeManager:
             print(f"[errorai] {result.detail} ({result.preview})")
         elif result.changed:
             print(f"[errorai] Applied fix to {filename}")
+            print("[errorai] Re-running the fixed file from the top...")
+            self._rerun_file(Path(filename))
         return result.changed
+
+    def _rerun_file(self, path: Path) -> None:
+        # Re-execute the just-fixed file directly, instead of relying on the
+        # user to hit Run again -- in editors like IDLE that keep their own
+        # in-memory buffer, a second manual Run can resave the old, still-
+        # broken content over our fix before running it. Runs from the top,
+        # so any side effects before the original crash point happen again.
+        try:
+            source = path.read_text(encoding="utf-8")
+            code = compile(source, str(path), "exec")
+            exec(code, {"__name__": "__main__", "__file__": str(path)})
+        except Exception:
+            print("[errorai] Re-run hit another error:")
+            traceback.print_exc()
 
     def status_report(self) -> dict[str, Any]:
         cfg = self.config or load_config()
