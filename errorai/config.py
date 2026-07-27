@@ -78,8 +78,13 @@ class ModelConfig:
     # Only used when provider = "http_api". Sends the errroring line + message
     # to this endpoint instead of running a local model. Opt-in only: unlike
     # the local onnx/llama_cpp providers, this means code leaves the machine.
+    # Model id must match OVHcloud's catalog exactly (case-sensitive) --
+    # "qwen2.5-coder-32b-instruct" was retired from their catalog and now
+    # 404s; Qwen3-Coder-30B-A3B-Instruct is their current coder-specific
+    # model. Check https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog/
+    # if this ever 404s again, since OVH's lineup changes over time.
     http_api_base_url: str = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
-    http_api_model: str = "qwen2.5-coder-32b-instruct"
+    http_api_model: str = "Qwen3-Coder-30B-A3B-Instruct"
     http_api_timeout: float = 8.0
 
 
@@ -166,7 +171,7 @@ ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules
 # this if you're OK with that one line leaving your machine.
 provider = "http_api"
 http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
-http_api_model = "qwen2.5-coder-32b-instruct"
+http_api_model = "Qwen3-Coder-30B-A3B-Instruct"
 http_api_timeout = 8.0
 
 # To run a fully local, offline model instead (nothing leaves your
