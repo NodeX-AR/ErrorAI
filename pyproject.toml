@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ErrorAI"
-version = "1.10.0"
+version = "1.11.0"
 description = "Python-only autonomous runtime that watches/analyzes errors with safe local auto-fix fallbacks."
 readme = "README.md"
 authors = [
@@ -20,14 +20,18 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "platformdirs>=3.0",
-    "onnxruntime>=1.18.0",
-    "optimum[onnxruntime]>=1.20.0",
-    "transformers>=4.40.0",
-    "huggingface_hub>=0.23.0",
     "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+# Default install uses the hosted http_api provider (no local model, no
+# heavy ML deps). Install this extra for a fully local/offline model.
+pro = [
+    "onnxruntime>=1.18.0",
+    "optimum[onnxruntime]>=1.20.0",
+    "transformers>=4.40.0",
+    "huggingface_hub>=0.23.0",
+]
 watch = ["watchdog>=4.0.0"]
 
 [project.scripts]
