@@ -1,3 +1,29 @@
-[model]
-provider = "http_api"
+[runtime]
+auto_watch = true
+safe_mode = true
+# When you approve a fix (Y), it's written for real. If the write can't
+# happen (permission denied, outside project_root, etc.) it automatically
+# falls back to a preview instead of erroring. Set true to always preview
+# only and never write.
 dry_run = false
+ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules", "*.lock", ".errorai"]
+
+[model]
+# Default: free, keyless hosted API. No local model download, no
+# onnxruntime/optimum/transformers dependency required. This sends the
+# erroring line + message to http_api_base_url (default: OVHcloud AI
+# Endpoints' anonymous tier -- no signup, no key, ~2 req/min). Only keep
+# this if you're OK with that one line leaving your machine.
+provider = "http_api"
+http_api_base_url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
+http_api_model = "Qwen3-Coder-30B-A3B-Instruct"
+http_api_timeout = 8.0
+
+# To run a fully local, offline model instead (nothing leaves your
+# machine), install the extra:  pip install ErrorAI[pro]
+# then switch this block to:
+# provider = "onnx"
+# name = "onnx-default-python-expert"
+# context_window = 4096
+# temperature = 0.1
+# auto_bootstrap = true
