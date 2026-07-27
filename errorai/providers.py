@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -210,6 +211,16 @@ class HttpApiProvider(ModelProvider):
     config: ModelConfig
     last_error: str | None = None
 
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        # Anonymous requests are capped at ~2 req/min per IP. A free
+        # registered OVHcloud AI Endpoints account gets a higher limit --
+        # set http_api_key in config or export OVH_AI_ENDPOINTS_ACCESS_TOKEN.
+        key = self.config.http_api_key or os.environ.get("OVH_AI_ENDPOINTS_ACCESS_TOKEN")
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        return headers
+
     def suggest_patch(self, snippet: str, error_message: str) -> str | None:
         prompt = (
             "Fix this single line of Python code so it no longer raises the "
@@ -235,7 +246,7 @@ class HttpApiProvider(ModelProvider):
         request = urllib.request.Request(
             self.config.http_api_base_url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=self._headers(),
             method="POST",
         )
         try:
@@ -274,7 +285,7 @@ class HttpApiProvider(ModelProvider):
         request = urllib.request.Request(
             self.config.http_api_base_url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=self._headers(),
             method="POST",
         )
         try:
