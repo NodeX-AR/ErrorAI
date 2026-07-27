@@ -43,7 +43,7 @@ def _default_cache_dir() -> Path:
 class RuntimeConfig:
     auto_watch: bool = True
     safe_mode: bool = True
-    dry_run: bool = True
+    dry_run: bool = False
     project_root: Path = field(default_factory=_default_project_root)
     ignore_patterns: tuple[str, ...] = (
         ".git",
@@ -160,7 +160,11 @@ def config_template() -> str:
     return """[runtime]
 auto_watch = true
 safe_mode = true
-dry_run = true
+# When you approve a fix (Y), it's written for real. If the write can't
+# happen (permission denied, outside project_root, etc.) it automatically
+# falls back to a preview instead of erroring. Set true to always preview
+# only and never write.
+dry_run = false
 ignore_patterns = [".git", "__pycache__", ".env", ".venv", "venv", "node_modules", "*.lock", ".errorai"]
 
 [model]
