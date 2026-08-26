@@ -29,8 +29,8 @@ class catch_errors:
     def __exit__(self, exc_type, exc_value, exc_tb):
         if exc_type is None:
             return False
-        get_runtime().process_exception(exc_type, exc_value, exc_tb)
-        return True
+        handled = get_runtime().process_exception(exc_type, exc_value, exc_tb)
+        return handled
 
     def __call__(self, *args, **kwargs):
         if callable(self.func):
