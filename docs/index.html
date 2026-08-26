@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ErrorAI - Python autonomous runtime that catches exceptions and operates with safe-by-default behavior.">
+    <meta name="keywords" content="Python, Exception Handling, Runtime, AI, Autonomous">
+    <title>ErrorAI - Autonomous Python Runtime</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75' fill='%234F46E5'>🤖</text></svg>">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <span class="logo">⚡</span>
+                <span class="brand-name">ErrorAI</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#quickstart">Quickstart</a></li>
+                <li><a href="#safety">Safety</a></li>
+                <li><a href="https://github.com/NodeX-AR/ErrorAI" class="btn-primary">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <h1>ErrorAI</h1>
+            <p class="subtitle">Autonomous Python Runtime with Safe-by-Default Exception Handling</p>
+            <p class="description">ErrorAI is a Python-only autonomous runtime that starts on import, catches exceptions, and operates with intelligent watch/read/write behavior.</p>
+            <div class="hero-buttons">
+                <a href="#quickstart" class="btn btn-primary">Get Started</a>
+                <a href="https://github.com/NodeX-AR/ErrorAI" class="btn btn-secondary" target="_blank">View on GitHub</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2>Key Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🚀</div>
+                    <h3>Zero-Config Start</h3>
+                    <p>Simply <code>import errorai</code> and the runtime initializes automatically with sensible defaults.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Safe by Default</h3>
+                    <p>Safe mode enabled by default. Writes restricted to project root with ignore patterns blocked.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Intelligent Watching</h3>
+                    <p>Background watch services monitor your code and catch exceptions with smart resolution.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚙️</div>
+                    <h3>Model Bootstrap</h3>
+                    <p>Automatically bootstraps a lightweight local coding model. Falls back to rules-only mode if needed.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📋</div>
+                    <h3>Dry-Run Mode</h3>
+                    <p>Preview all edits before writing. Perfect for understanding what will happen.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Offline Ready</h3>
+                    <p>Works seamlessly offline. No internet required once the model is bootstrapped.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quickstart Section -->
+    <section id="quickstart" class="quickstart">
+        <div class="container">
+            <h2>Quickstart</h2>
+            <div class="quickstart-content">
+                <div class="quickstart-step">
+                    <h3>1. Install</h3>
+                    <div class="code-block">
+                        <code>pip install ErrorAI</code>
+                    </div>
+                </div>
+                <div class="quickstart-step">
+                    <h3>2. Import</h3>
+                    <div class="code-block">
+                        <code>import errorai</code>
+                    </div>
+                    <p>That's it! The runtime is now active and monitoring your code.</p>
+                </div>
+                <div class="quickstart-step">
+                    <h3>3. Optional Setup</h3>
+                    <div class="code-block">
+                        <code>errorai init<br>errorai doctor<br>errorai install-model</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Safety Section -->
+    <section id="safety" class="safety">
+        <div class="container">
+            <h2>Safety Defaults</h2>
+            <div class="safety-grid">
+                <div class="safety-item">
+                    <h4>✓ Safe Mode Enabled</h4>
+                    <p>Default safe mode protects your system from unintended changes.</p>
+                </div>
+                <div class="safety-item">
+                    <h4>✓ Write Restrictions</h4>
+                    <p>All writes are restricted to your project root directory.</p>
+                </div>
+                <div class="safety-item">
+                    <h4>✓ Ignore Patterns</h4>
+                    <p>Sensitive and common ignore patterns are blocked by default.</p>
+                </div>
+                <div class="safety-item">
+                    <h4>✓ Dry-Run Default</h4>
+                    <p>Dry-run mode is on by default to preview edits before applying them.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Commands Section -->
+    <section class="commands">
+        <div class="container">
+            <h2>CLI Commands</h2>
+            <div class="commands-list">
+                <div class="command">
+                    <code>errorai init</code>
+                    <p>Writes default <code>.errorai.toml</code> configuration file</p>
+                </div>
+                <div class="command">
+                    <code>errorai doctor</code>
+                    <p>Reports environment, runtime, and model readiness status</p>
+                </div>
+                <div class="command">
+                    <code>errorai install-model</code>
+                    <p>Retries local model bootstrap if initial installation failed</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>ErrorAI</h4>
+                    <p>Autonomous Python runtime with safe-by-default exception handling.</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Links</h4>
+                    <ul>
+                        <li><a href="https://github.com/NodeX-AR/ErrorAI" target="_blank">GitHub Repository</a></li>
+                        <li><a href="https://pypi.org/project/ErrorAI/" target="_blank">PyPI Package</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="#quickstart">Quickstart Guide</a></li>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#safety">Safety Defaults</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 ErrorAI. Made with ❤️ by NodeX-AR</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
