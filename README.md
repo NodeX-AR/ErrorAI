@@ -16,7 +16,7 @@ That import initializes a singleton runtime, registers exception hooks, and star
 
 ## Optional setup commands
 
-
+ 
 ```bash
 errorai init
 errorai doctor
